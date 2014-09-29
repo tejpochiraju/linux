@@ -1,0 +1,124 @@
+#!/bin/bash
+
+# dependencies:
+#    bash (to run this script)
+#    util-linux (for getopt)
+#    hostapd
+#    dnsmasq
+#    iptables
+#    iproute2
+#    haveged (optional)
+
+usage() {
+    echo "Usage: $(basename $0) [options] <pi-interface> <interface-with-internet>"
+    echo
+    echo "Options:"
+    echo "  -h, --help          Show this help"
+    echo "  -g <gateway>        IPv4 Gateway for the Access Point (default: 10.1.0.1)"
+    echo "  -d                  DNS server will take into account /etc/hosts (default: disabled)"
+    echo
+    echo "Example:"
+    echo "  $(basename $0) wr0 eth0"
+}
+
+get_macaddr() {
+    ip link show "$1" | sed -n 's/.*ether \([0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]\) .*/\1/p'
+}
+
+ARGS=$(getopt -o hg:d -l "help" -n $(basename $0) -- "$@")
+[[ $? -ne 0 ]] && exit 1
+eval set -- "$ARGS"
+
+GATEWAY=10.1.0.1
+ETC_HOSTS=0
+
+while :; do
+    case "$1" in
+	-h|--help)
+	    usage
+	    exit 1
+	    ;;
+	-g)
+	    shift
+	    if [[ -n "$1" ]]; then
+		GATEWAY="$1"
+		shift
+	    fi
+	    ;;
+	-d)
+	    shift
+	    ETC_HOSTS=1
+	    ;;
+	--)
+	    shift
+	    break
+	    ;;
+    esac
+done
+
+if [[ $# -ne 2 ]]; then
+    usage
+    exit 1
+fi
+
+PI_IFACE=$1
+INTERNET_IFACE=$2
+
+if [[ $(id -u) -ne 0 ]]; then
+    echo "You must run it as root."
+    exit 1
+fi
+
+CONFDIR=$(mktemp -d /tmp/create_ap.${PI_IFACE}.conf.XXXXXXXX)
+echo "Config dir: $CONFDIR"
+
+
+# dnsmasq config (dhcp + dns)
+cat << EOF > $CONFDIR/dnsmasq.conf
+interface=${PI_IFACE}
+bind-interfaces
+dhcp-range=${GATEWAY%.*}.1,${GATEWAY%.*}.254,255.255.255.0,24h
+dhcp-option=option:router,${GATEWAY}
+EOF
+
+[[ $ETC_HOSTS -eq 0 ]] && echo no-hosts >> $CONFDIR/dnsmasq.conf
+
+# enable interface
+ip link set down dev ${PI_IFACE}
+ip addr flush ${PI_IFACE}
+ip link set up dev ${PI_IFACE}
+ip addr add ${GATEWAY}/24 dev ${PI_IFACE}
+
+# enable NAT
+iptables -t nat -A POSTROUTING -o ${INTERNET_IFACE} -j MASQUERADE
+iptables -A FORWARD -i ${PI_IFACE} -j ACCEPT
+OLD_IP_FORWARD=$(cat /proc/sys/net/ipv4/ip_forward)
+echo 1 > /proc/sys/net/ipv4/ip_forward
+
+# boost low-entropy
+if [[ $(cat /proc/sys/kernel/random/entropy_avail) -lt 1000 ]]; then
+    which haveged > /dev/null 2>&1 && {
+	haveged -w 1024 -p $CONFDIR/haveged.pid
+    }
+fi
+
+# start dns + dhcp server
+dnsmasq -C $CONFDIR/dnsmasq.conf -x $CONFDIR/dnsmasq.pid
+if [ $? -eq 0 ]; then
+	echo "Started DNSMasq"
+fi
+
+echo `pgrep dnsmasq`
+
+# # exiting
+# for x in $CONFDIR/*.pid; do
+#     kill -9 $(cat $x)
+# done
+
+# rm -rf $CONFDIR
+# iptables -t nat -D POSTROUTING -o ${INTERNET_IFACE} -j MASQUERADE
+# iptables -D FORWARD -i ${PI_IFACE} -j ACCEPT
+# echo $OLD_IP_FORWARD > /proc/sys/net/ipv4/ip_forward
+# ip link set down dev ${PI_IFACE}
+# ip addr flush ${PI_IFACE}
+# exit 0

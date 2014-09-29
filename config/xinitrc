@@ -1,0 +1,26 @@
+#!/bin/sh
+#
+# ~/.xinitrc
+#
+# Executed by startx (run your window manager from here)
+
+export PATH=$PATH:$HOME/bin
+if [ -d /etc/X11/xinit/xinitrc.d ]; then
+  for f in /etc/X11/xinit/xinitrc.d/*; do
+    [ -x "$f" ] && . "$f"
+  done
+  unset f
+fi
+
+hsetroot -solid "#000066"
+xcompmgr -c &
+urxvtd -q -f -o &
+eval $(cat ~/.fehbg) &
+nm-applet &
+pulseaudio --start &
+#blueman-applet &
+udiskie -as &
+#xss-lock -- i3lock -c 00ff00 &
+cbatticon &
+exec i3
+

@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+
+<html>
+<body>
+    <h1>Airtel 4G Connect/Disconnect</h1>
+
+<table width="40%">
+<tr>
+<td width="50%">
+    <form action = "http://192.168.0.1/goform/goform_set_cmd_process" method = "post">
+	    <input type="checkbox" name="goformId" value="CONNECT_NETWORK" checked style="display:none;">
+            <button name="submit" type="submit" style="width: 60%; float: left;"> <B>Connect</B> </button>
+    </form>
+</td>
+
+<td width="50%">
+    <form action = "http://192.168.0.1/goform/goform_set_cmd_process" method = "post">
+	    <input type="checkbox" name="goformId" value="DISCONNECT_NETWORK" checked style="display:none;">
+            <button name="submit" type="submit" style="width: 60%; float: right;"> <B>Disconnect</B> </button>
+    </form>
+</td>
+</tr>
+</table>
+
+</body>
+</html>
